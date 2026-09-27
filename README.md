@@ -51,13 +51,24 @@ curl -sS http://127.0.0.1:8432/api/system/health
 
 计算任务摘要位于 `/api/compute/summary`，模板、配额、提交、领取、回执和人工操作接口统一使用 `/api/compute` 前缀。
 
+### 两阶段批量操作（预演 → 确认）
+
+批量取消、重试和调优先级必须先预演再确认，避免任务在操作期间漂移造成混合结果：
+
+1. `POST /api/compute/batch-previews`：冻结选择条件（显式 `task_ids` 或 `filter`），返回一次性 `token`、`summary_digest`、有效期及逐条条目的当前版本、允许动作、拒绝原因。
+2. `POST /api/compute/batch-previews/{token}/confirm`：回传 `summary_digest` 并选择 `execution_mode`：
+   - `all_or_nothing`：预演中存在拒绝条目或确认时任一允许条目发生版本/状态漂移，整批回滚并在错误上下文返回 `diffs`；
+   - `accept_partial`：可执行的执行，漂移或预演拒绝的条目逐条记入 `skipped` 并保留差异。
+3. 令牌有 TTL，过期确认返回 `preview_expired` 与当前差异；摘要不匹配返回 `summary_mismatch`；同一令牌重复确认只回放首次批次结果（`replayed=true`），不会重复操作。
+4. `GET /api/compute/batch-previews/{token}` 查看预演及条目实时漂移；`GET /api/compute/batch-previews/{token}/review` 重建批次，关联预演选择、确认人、执行模式、每条任务修改或跳过的原因，以及干预前后快照。
+
 ## 测试
 
 ```bash
 python -m pytest
 ```
 
-测试覆盖参数规则、幂等提交、配额拒绝、优先级领取、能力匹配、租约续期、失败退避、结果版本、取消、人工重试、批量操作和租约恢复，并保留身份与既有科学计算模块的回归用例。
+测试覆盖参数规则、幂等提交、配额拒绝、优先级领取、能力匹配、租约续期、失败退避、结果版本、取消、人工重试、批量操作、两阶段批量预演/确认（摘要校验、全有或全无、漂移差异、令牌过期与单次使用、批次复盘）和租约恢复，并保留身份与既有科学计算模块的回归用例。
 
 ## 编译检查
 

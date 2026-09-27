@@ -4,6 +4,8 @@ import json
 import sqlite3
 from typing import Any, Iterable
 
+from app.core.errors import ConflictError
+
 
 class ComputeRepository:
     """封装计算任务运营领域的 SQLite 读写。"""
@@ -77,6 +79,9 @@ class ComputeRepository:
     def interventions(self, task_id: int) -> list[dict[str, Any]]:
         return [dict(row) for row in self.connection.execute("SELECT * FROM compute_interventions WHERE task_id=? ORDER BY id", (task_id,)).fetchall()]
 
+    def interventions_by_batch(self, batch_key: str) -> list[dict[str, Any]]:
+        return [dict(row) for row in self.connection.execute("SELECT * FROM compute_interventions WHERE batch_key=? ORDER BY id", (batch_key,)).fetchall()]
+
     def add_intervention(self, *, task_id: int, actor: str, action: str, reason: str, before: dict[str, Any], after: dict[str, Any], batch_key: str, now: str) -> None:
         self.connection.execute(
             "INSERT INTO compute_interventions(task_id,actor,action,reason,before_json,after_json,batch_key,created_at) VALUES(?,?,?,?,?,?,?,?)",
@@ -102,3 +107,75 @@ class ComputeRepository:
             values,
         ).fetchall()
         return [dict(row) for row in rows]
+
+    def tasks_by_ids(self, task_ids: Iterable[int]) -> list[sqlite3.Row]:
+        unique = list(dict.fromkeys(task_ids))
+        if not unique:
+            return []
+        placeholders = ",".join("?" for _ in unique)
+        rows = self.connection.execute(
+            f"SELECT t.*,tpl.code AS template_code,tpl.algorithm AS template_algorithm FROM compute_tasks t JOIN compute_templates tpl ON tpl.id=t.template_id WHERE t.id IN ({placeholders})",
+            unique,
+        ).fetchall()
+        by_id = {int(row["id"]): row for row in rows}
+        return [by_id[task_id] for task_id in unique if task_id in by_id]
+
+    def create_preview(
+        self, *, token: str, operation: str, selector: dict[str, Any], selector_digest: str,
+        parameters: dict[str, Any], actor: str, reason: str, summary_digest: str,
+        item_count: int, allowed_count: int, rejected_count: int, expires_at: str, now: str,
+    ) -> int:
+        cursor = self.connection.execute(
+            "INSERT INTO compute_batch_previews(token,operation,selector_json,selector_digest,parameters_json,actor,reason,summary_digest,item_count,allowed_count,rejected_count,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (token, operation, json.dumps(selector, ensure_ascii=False, sort_keys=True), selector_digest,
+             json.dumps(parameters, ensure_ascii=False, sort_keys=True), actor, reason, summary_digest,
+             item_count, allowed_count, rejected_count, expires_at, now),
+        )
+        return int(cursor.lastrowid)
+
+    def add_preview_item(
+        self, *, preview_id: int, task_id: int | None, task_version: int | None,
+        status_at_preview: str | None, allowed: bool, allowed_actions: list[str],
+        reject_reason: str, position: int,
+    ) -> None:
+        self.connection.execute(
+            "INSERT INTO compute_preview_items(preview_id,task_id,task_version,status_at_preview,allowed,allowed_actions_json,reject_reason,position) VALUES(?,?,?,?,?,?,?,?)",
+            (preview_id, task_id, task_version, status_at_preview, 1 if allowed else 0,
+             json.dumps(allowed_actions, ensure_ascii=False), reject_reason, position),
+        )
+
+    def preview_by_token(self, token: str) -> sqlite3.Row | None:
+        return self.connection.execute("SELECT * FROM compute_batch_previews WHERE token=?", (token,)).fetchone()
+
+    def preview_items(self, preview_id: int) -> list[sqlite3.Row]:
+        return self.connection.execute(
+            "SELECT * FROM compute_preview_items WHERE preview_id=? ORDER BY position,id", (preview_id,),
+        ).fetchall()
+
+    def mark_preview_confirmed(
+        self, *, preview_id: int, confirmed_by: str, confirmed_at: str,
+        execution_mode: str, batch_result_id: int,
+    ) -> None:
+        cursor = self.connection.execute(
+            "UPDATE compute_batch_previews SET status='confirmed',confirmed_by=?,confirmed_at=?,execution_mode=?,batch_result_id=? WHERE id=? AND status='open'",
+            (confirmed_by, confirmed_at, execution_mode, batch_result_id, preview_id),
+        )
+        if cursor.rowcount != 1:
+            raise ConflictError("预演令牌已经确认或已失效")
+
+    def create_batch_result(
+        self, *, preview_id: int, token: str, operation: str, execution_mode: str,
+        actor: str, reason: str, succeeded: list[dict[str, Any]], skipped: list[dict[str, Any]],
+        failed: list[dict[str, Any]], now: str,
+    ) -> int:
+        cursor = self.connection.execute(
+            "INSERT INTO compute_batch_results(preview_id,token,operation,execution_mode,actor,reason,succeeded_json,skipped_json,failed_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (preview_id, token, operation, execution_mode, actor, reason,
+             json.dumps(succeeded, ensure_ascii=False, sort_keys=True),
+             json.dumps(skipped, ensure_ascii=False, sort_keys=True),
+             json.dumps(failed, ensure_ascii=False, sort_keys=True), now),
+        )
+        return int(cursor.lastrowid)
+
+    def batch_result_by_preview(self, preview_id: int) -> sqlite3.Row | None:
+        return self.connection.execute("SELECT * FROM compute_batch_results WHERE preview_id=?", (preview_id,)).fetchone()

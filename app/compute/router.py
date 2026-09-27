@@ -2,7 +2,20 @@ from __future__ import annotations
 
 from fastapi import APIRouter, Query
 
-from app.compute.schemas import BatchOperation, CancelRequest, PriorityRequest, QuotaSet, RetryRequest, TaskClaim, TaskFailure, TaskResult, TaskSubmit, TemplateCreate
+from app.compute.schemas import (
+    BatchConfirmRequest,
+    BatchOperation,
+    BatchPreviewRequest,
+    CancelRequest,
+    PriorityRequest,
+    QuotaSet,
+    RetryRequest,
+    TaskClaim,
+    TaskFailure,
+    TaskResult,
+    TaskSubmit,
+    TemplateCreate,
+)
 from app.compute.service import ComputeOperationsService
 
 router = APIRouter(prefix="/api/compute", tags=["科学计算任务运营"])
@@ -80,6 +93,28 @@ def set_priority(task_id: int, payload: PriorityRequest):
 @router.post("/tasks/batch")
 def batch_operation(payload: BatchOperation):
     return service().batch_operation(payload.model_dump())
+
+
+@router.post("/batch-previews", status_code=201)
+def preview_batch(payload: BatchPreviewRequest):
+    return service().preview_batch(payload.model_dump())
+
+
+@router.get("/batch-previews/{token}")
+def get_batch_preview(token: str):
+    return service().get_batch_preview(token)
+
+
+@router.post("/batch-previews/{token}/confirm")
+def confirm_batch_preview(token: str, payload: BatchConfirmRequest):
+    data = payload.model_dump()
+    data["token"] = token
+    return service().confirm_batch_preview(data)
+
+
+@router.get("/batch-previews/{token}/review")
+def get_batch_review(token: str):
+    return service().get_batch_review(token)
 
 
 @router.post("/recovery/expired-leases")

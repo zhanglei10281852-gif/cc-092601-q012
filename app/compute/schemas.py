@@ -80,3 +80,47 @@ class BatchOperation(BaseModel):
         if self.operation == "priority" and self.priority is None:
             raise ValueError("批量调整优先级时必须提供 priority")
         return self
+
+
+class TaskFilter(BaseModel):
+    status: str | None = Field(default=None, max_length=32)
+    project_code: str | None = Field(default=None, max_length=80)
+    requested_by: str | None = Field(default=None, max_length=80)
+    limit: int = Field(default=500, ge=1, le=500)
+
+
+class TaskSelector(BaseModel):
+    """批量任务的选择条件，支持显式编号或冻结的过滤条件，二选一。"""
+
+    task_ids: list[int] | None = Field(default=None, min_length=1, max_length=500)
+    filter: TaskFilter | None = None
+
+    @model_validator(mode="after")
+    def validate_selector(self) -> "TaskSelector":
+        has_filter = self.filter is not None
+        if bool(self.task_ids) == has_filter:
+            raise ValueError("必须且只能提供 task_ids 或 filter 一种选择条件")
+        return self
+
+
+class BatchPreviewRequest(BaseModel):
+    operation: Literal["cancel", "retry", "priority"]
+    selector: TaskSelector
+    actor: str = Field(min_length=1, max_length=120)
+    reason: str = Field(min_length=2, max_length=1000)
+    priority: int | None = Field(default=None, ge=0, le=100)
+    ttl_seconds: int = Field(default=600, ge=30, le=1800)
+
+    @model_validator(mode="after")
+    def validate_priority(self) -> "BatchPreviewRequest":
+        if self.operation == "priority" and self.priority is None:
+            raise ValueError("批量调整优先级时必须提供 priority")
+        return self
+
+
+class BatchConfirmRequest(BaseModel):
+    confirmed_by: str = Field(min_length=1, max_length=120)
+    summary_digest: str = Field(min_length=8, max_length=128, description="预演接口返回的摘要指纹")
+    execution_mode: Literal["all_or_nothing", "accept_partial"]
+    # 确认时是否允许执行预演中被拒绝的条目（仅 accept_partial 下有意义，默认全部跳过）
+    include_rejected: bool = False

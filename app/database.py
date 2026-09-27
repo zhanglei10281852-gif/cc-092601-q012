@@ -293,6 +293,55 @@ CREATE TABLE IF NOT EXISTS compute_interventions (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_compute_interventions_task ON compute_interventions(task_id,id);
+CREATE INDEX IF NOT EXISTS idx_compute_interventions_batch ON compute_interventions(batch_key);
+CREATE TABLE IF NOT EXISTS compute_batch_previews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    token TEXT NOT NULL UNIQUE,
+    operation TEXT NOT NULL CHECK(operation IN ('cancel','retry','priority')),
+    selector_json TEXT NOT NULL,
+    selector_digest TEXT NOT NULL,
+    parameters_json TEXT NOT NULL DEFAULT '{}',
+    actor TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    summary_digest TEXT NOT NULL,
+    item_count INTEGER NOT NULL,
+    allowed_count INTEGER NOT NULL,
+    rejected_count INTEGER NOT NULL,
+    expires_at TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'open' CHECK(status IN ('open','confirmed')),
+    confirmed_by TEXT NOT NULL DEFAULT '',
+    confirmed_at TEXT,
+    execution_mode TEXT NOT NULL DEFAULT '',
+    batch_result_id INTEGER,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_compute_previews_created ON compute_batch_previews(created_at DESC);
+CREATE TABLE IF NOT EXISTS compute_preview_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    preview_id INTEGER NOT NULL REFERENCES compute_batch_previews(id) ON DELETE CASCADE,
+    task_id INTEGER,
+    task_version INTEGER,
+    status_at_preview TEXT,
+    allowed INTEGER NOT NULL CHECK(allowed IN (0,1)),
+    allowed_actions_json TEXT NOT NULL DEFAULT '[]',
+    reject_reason TEXT NOT NULL DEFAULT '',
+    position INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_compute_preview_items_preview ON compute_preview_items(preview_id,position);
+CREATE TABLE IF NOT EXISTS compute_batch_results (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    preview_id INTEGER NOT NULL REFERENCES compute_batch_previews(id),
+    token TEXT NOT NULL,
+    operation TEXT NOT NULL,
+    execution_mode TEXT NOT NULL CHECK(execution_mode IN ('all_or_nothing','accept_partial')),
+    actor TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    succeeded_json TEXT NOT NULL,
+    skipped_json TEXT NOT NULL,
+    failed_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_compute_batch_results_token ON compute_batch_results(token);
 '''
 
 PERMISSIONS = [
