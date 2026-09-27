@@ -293,6 +293,51 @@ CREATE TABLE IF NOT EXISTS compute_interventions (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_compute_interventions_task ON compute_interventions(task_id,id);
+CREATE TABLE IF NOT EXISTS compute_batch_previews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    preview_token TEXT NOT NULL UNIQUE,
+    operation TEXT NOT NULL CHECK(operation IN ('cancel','retry','priority')),
+    actor TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    priority INTEGER,
+    selection_json TEXT NOT NULL,
+    summary_digest TEXT NOT NULL,
+    total_count INTEGER NOT NULL,
+    allowed_count INTEGER NOT NULL,
+    rejected_count INTEGER NOT NULL,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS compute_batch_preview_items (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    preview_id INTEGER NOT NULL REFERENCES compute_batch_previews(id) ON DELETE CASCADE,
+    task_id INTEGER NOT NULL,
+    task_version INTEGER,
+    task_status TEXT NOT NULL DEFAULT '',
+    allowed INTEGER NOT NULL CHECK(allowed IN (0,1)),
+    reject_code TEXT NOT NULL DEFAULT '',
+    reject_message TEXT NOT NULL DEFAULT '',
+    decision TEXT NOT NULL DEFAULT '' CHECK(decision IN ('','applied','skipped','rejected','failed')),
+    decision_reason TEXT NOT NULL DEFAULT '',
+    result_version INTEGER,
+    intervention_id INTEGER,
+    UNIQUE(preview_id, task_id)
+);
+CREATE INDEX IF NOT EXISTS idx_compute_batch_preview_items_preview ON compute_batch_preview_items(preview_id,id);
+CREATE TABLE IF NOT EXISTS compute_batch_confirmations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    batch_key TEXT NOT NULL UNIQUE,
+    preview_id INTEGER NOT NULL REFERENCES compute_batch_previews(id) ON DELETE CASCADE,
+    preview_token TEXT NOT NULL UNIQUE,
+    mode TEXT NOT NULL CHECK(mode IN ('atomic','partial')),
+    actor TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('completed','failed')),
+    applied_count INTEGER NOT NULL,
+    skipped_count INTEGER NOT NULL,
+    rejected_count INTEGER NOT NULL,
+    result_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
 '''
 
 PERMISSIONS = [

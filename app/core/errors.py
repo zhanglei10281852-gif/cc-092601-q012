@@ -36,6 +36,18 @@ class ValidationError(DomainError):
     code = "validation_error"
 
 
+class PreviewExpiredError(ConflictError):
+    code = "preview_expired"
+
+
+class PreviewDigestMismatchError(ConflictError):
+    code = "preview_digest_mismatch"
+
+
+class BatchDriftError(ConflictError):
+    code = "batch_drift"
+
+
 class AccountLockedError(AuthenticationError):
     code = "account_locked"
 

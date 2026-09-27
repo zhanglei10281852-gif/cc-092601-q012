@@ -77,11 +77,52 @@ class ComputeRepository:
     def interventions(self, task_id: int) -> list[dict[str, Any]]:
         return [dict(row) for row in self.connection.execute("SELECT * FROM compute_interventions WHERE task_id=? ORDER BY id", (task_id,)).fetchall()]
 
-    def add_intervention(self, *, task_id: int, actor: str, action: str, reason: str, before: dict[str, Any], after: dict[str, Any], batch_key: str, now: str) -> None:
-        self.connection.execute(
+    def add_intervention(self, *, task_id: int, actor: str, action: str, reason: str, before: dict[str, Any], after: dict[str, Any], batch_key: str, now: str) -> int:
+        cursor = self.connection.execute(
             "INSERT INTO compute_interventions(task_id,actor,action,reason,before_json,after_json,batch_key,created_at) VALUES(?,?,?,?,?,?,?,?)",
             (task_id, actor, action, reason, json.dumps(before, ensure_ascii=False, sort_keys=True), json.dumps(after, ensure_ascii=False, sort_keys=True), batch_key, now),
         )
+        return int(cursor.lastrowid)
+
+    def create_batch_preview(self, *, preview_token: str, operation: str, actor: str, reason: str, priority: int | None, selection: dict[str, Any], summary_digest: str, total: int, allowed: int, rejected: int, expires_at: str, now: str) -> int:
+        cursor = self.connection.execute(
+            "INSERT INTO compute_batch_previews(preview_token,operation,actor,reason,priority,selection_json,summary_digest,total_count,allowed_count,rejected_count,expires_at,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (preview_token, operation, actor, reason, priority, json.dumps(selection, ensure_ascii=False, sort_keys=True), summary_digest, total, allowed, rejected, expires_at, now),
+        )
+        return int(cursor.lastrowid)
+
+    def batch_preview_by_token(self, preview_token: str) -> sqlite3.Row | None:
+        return self.connection.execute("SELECT * FROM compute_batch_previews WHERE preview_token=?", (preview_token,)).fetchone()
+
+    def batch_preview_by_id(self, preview_id: int) -> sqlite3.Row | None:
+        return self.connection.execute("SELECT * FROM compute_batch_previews WHERE id=?", (preview_id,)).fetchone()
+
+    def add_batch_preview_item(self, *, preview_id: int, task_id: int, task_version: int | None, task_status: str, allowed: bool, reject_code: str, reject_message: str) -> None:
+        self.connection.execute(
+            "INSERT INTO compute_batch_preview_items(preview_id,task_id,task_version,task_status,allowed,reject_code,reject_message) VALUES(?,?,?,?,?,?,?)",
+            (preview_id, task_id, task_version, task_status, 1 if allowed else 0, reject_code, reject_message),
+        )
+
+    def batch_preview_items(self, preview_id: int) -> list[dict[str, Any]]:
+        return [dict(row) for row in self.connection.execute("SELECT * FROM compute_batch_preview_items WHERE preview_id=? ORDER BY id", (preview_id,)).fetchall()]
+
+    def update_batch_preview_item_decision(self, item_id: int, *, decision: str, reason: str, result_version: int | None, intervention_id: int | None) -> None:
+        self.connection.execute(
+            "UPDATE compute_batch_preview_items SET decision=?,decision_reason=?,result_version=?,intervention_id=? WHERE id=?",
+            (decision, reason, result_version, intervention_id, item_id),
+        )
+
+    def create_batch_confirmation(self, *, batch_key: str, preview_id: int, preview_token: str, mode: str, actor: str, applied: int, skipped: int, rejected: int, result: dict[str, Any], now: str) -> None:
+        self.connection.execute(
+            "INSERT INTO compute_batch_confirmations(batch_key,preview_id,preview_token,mode,actor,status,applied_count,skipped_count,rejected_count,result_json,created_at) VALUES(?,?,?,?,?,'completed',?,?,?,?,?)",
+            (batch_key, preview_id, preview_token, mode, actor, applied, skipped, rejected, json.dumps(result, ensure_ascii=False, sort_keys=True), now),
+        )
+
+    def batch_confirmation_by_token(self, preview_token: str) -> sqlite3.Row | None:
+        return self.connection.execute("SELECT * FROM compute_batch_confirmations WHERE preview_token=?", (preview_token,)).fetchone()
+
+    def batch_confirmation_by_key(self, batch_key: str) -> sqlite3.Row | None:
+        return self.connection.execute("SELECT * FROM compute_batch_confirmations WHERE batch_key=?", (batch_key,)).fetchone()
 
     def list_tasks(self, *, status: str | None, project_code: str | None, requested_by: str | None, limit: int) -> list[dict[str, Any]]:
         clauses: list[str] = []

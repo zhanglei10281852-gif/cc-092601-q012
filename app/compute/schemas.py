@@ -80,3 +80,25 @@ class BatchOperation(BaseModel):
         if self.operation == "priority" and self.priority is None:
             raise ValueError("批量调整优先级时必须提供 priority")
         return self
+
+
+class BatchPreviewRequest(BaseModel):
+    task_ids: list[int] = Field(min_length=1, max_length=200)
+    operation: Literal["cancel", "retry", "priority"]
+    actor: str = Field(min_length=1, max_length=120)
+    reason: str = Field(min_length=2, max_length=1000)
+    priority: int | None = Field(default=None, ge=0, le=100)
+    ttl_seconds: int = Field(default=900, ge=60, le=3600)
+
+    @model_validator(mode="after")
+    def validate_priority(self) -> "BatchPreviewRequest":
+        if self.operation == "priority" and self.priority is None:
+            raise ValueError("批量调整优先级时必须提供 priority")
+        return self
+
+
+class BatchConfirmRequest(BaseModel):
+    preview_token: str = Field(min_length=8, max_length=120)
+    summary_digest: str = Field(min_length=16, max_length=128)
+    mode: Literal["atomic", "partial"] = "atomic"
+    actor: str = Field(min_length=1, max_length=120)
